@@ -229,9 +229,9 @@ class ConnectionManager:
                 logger.warning(f"[Session] 알 수 없는 텍스트 타입: {input_obj.type}")
         
         except json.JSONDecodeError:
-            logger.error(f"[Session] JSON 파싱 실패: {raw_text[:100]}")
-        except Exception as e:
-            logger.error(f"[Session] 텍스트 처리 중 오류: {e}")
+            logger.error(f"[Session] {ticket_id} JSON 파싱 실패: {raw_text[:100]}")
+        except Exception:
+            logger.exception(f"[Session] {ticket_id} 텍스트 처리 중 오류")
     
     # [데이터 처리 파이프라인 2] 바이너리 프레임 전용 (순수 오디오, 비디오 데이터 입력으로 전환)
     async def process_binary_data(self, ticket_id: str, raw_bytes: bytes):
@@ -269,7 +269,7 @@ class ConnectionManager:
             else:
                 logger.warning(f"[Session] 알 수 없는 바이너리 헤더: {header}")
 
-        except Exception as e:
-            logger.error(f"[Session] 바이너리 처리 중 오류: {e}")
+        except Exception:
+            logger.exception(f"[Session] {ticket_id} 바이너리 처리 중 오류")
 
 manager = ConnectionManager()

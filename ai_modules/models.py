@@ -217,11 +217,11 @@ class ExaoneLLMModel(BaseLLMModel):
     LoRA 없음 — CBT 제어 + 감정 톤 조절은 전적으로 system prompt로.
     """
 
-    def __init__(self, device: str = "cuda"):
+    def __init__(self, device: str = "cuda", model_name: str = "LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct"):
         self.device = device
         self.model = None
         self.tokenizer = None
-        self.model_name = "LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct"
+        self.model_name = model_name
 
     def load_model(self):
         import torch
@@ -258,9 +258,9 @@ class ExaoneLLMModel(BaseLLMModel):
             import torch as _torch
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                torch_dtype=_torch.float32,
+                torch_dtype=_torch.float16,
                 trust_remote_code=True,
-            )
+            ).to("cpu")
 
         self.model.eval()
 

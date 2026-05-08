@@ -87,6 +87,31 @@ class HistoryManager:
     def get_full_history(self) -> List[Dict[str, str]]:
         return list(self.full_history)
 
+    # ════════════════════════════════════════════════════════════════
+    # ⬇⬇⬇  Spring 연동 진입점 (turn별 감정 데이터)  ⬇⬇⬇
+    #
+    # 외부에서 데이터를 가져가는 방법:
+    #   from app.services.pipeline import pipeline
+    #   history_mgr = pipeline.session.get_history_manager(session_id)
+    #   emotions = history_mgr.get_turn_emotions()
+    #
+    # entry 구조 (List[Dict]):
+    #   {
+    #     "turn": int,            # 1부터 증가하는 턴 번호
+    #     "step": int,            # 1~5 CBT 단계
+    #     "fused_emotion": str,   # 엔트로피 융합 결과 (최종 감정)
+    #     "text_emotion": str,    # BERT 텍스트 감정
+    #     "voice_emotion": str,   # Wav2Vec2 음성 감정
+    #     "face_emotion": str,    # DeepFace 얼굴 감정
+    #   }
+    #
+    # 호출 시점: pipeline.generate_response() 가 매 턴 종료 시 add_turn_emotion 호출
+    #   (위치: app/services/pipeline.py — history_mgr.add_turn_emotion(...))
+    #
+    # Spring 연동 방식 (TODO — 미구현):
+    #   - Redis publish: 매 턴마다 entry를 채널에 publish
+    #   - HTTP POST: 세션 종료 시 get_turn_emotions() 결과를 Spring 엔드포인트로 전송
+    # ════════════════════════════════════════════════════════════════
     def add_turn_emotion(
         self,
         fused: str,

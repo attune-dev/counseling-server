@@ -55,6 +55,7 @@ class AIContainer:
 
         self.llm = ExaoneLLMModel(
             device=settings.cbt_llm_device,
+            model_name=settings.cbt_llm_model,
         )
         self.llm.load_model()
 

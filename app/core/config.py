@@ -14,7 +14,10 @@ class Settings(BaseSettings):
     whisper_device: str = "cuda"
     whisper_compute_type: str = "float16"
 
-    # CBT LLM 설정 (EXAONE-3.5-7.8B-Instruct 8-bit)
+    # CBT LLM 설정
+    # GPU: "LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct" (기본값)
+    # CPU 테스트: LLM_MODEL=Qwen/Qwen2.5-3B-Instruct CBT_LLM_DEVICE=cpu
+    cbt_llm_model: str = "LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct"
     cbt_llm_device: str = "cuda"
 
     # 텍스트 감정 설정 (klue/bert) — fp16 GPU 사용 시 ~200MB

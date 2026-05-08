@@ -28,6 +28,9 @@ temp_frames/
 # 테스트
 test_*.py
 
+# 로컬 작업 가이드 (개인용)
+CLAUDE.md
+
 # OS
 .DS_Store
 
