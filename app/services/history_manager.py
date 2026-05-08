@@ -6,8 +6,7 @@ LLM에 들어갈 컨텍스트:
   system_prompt (이전 단계 요약 포함) + 현재 단계 최근 N턴 raw history.
 
 turn_emotions: 턴별 감정 기록 (Redis → Spring 연동용).
-  구조: [{"turn": int, "step": int, "fused_emotion": str,
-           "text_emotion": str, "voice_emotion": str, "face_emotion": str}, ...]
+  구조: [{"turn": int, "step": int, "fused_emotion": str}, ...]
 """
 
 import logging
@@ -45,8 +44,7 @@ class HistoryManager:
         # 전체 원본 히스토리 (리포트용, 절대 잘리지 않음)
         self.full_history: List[Dict[str, str]] = []
         # 턴별 감정 기록 (Redis → Spring 연동용)
-        # 구조: [{"turn": int, "step": int, "fused_emotion": str,
-        #          "text_emotion": str, "voice_emotion": str, "face_emotion": str}, ...]
+        # 구조: [{"turn": int, "step": int, "fused_emotion": str}, ...]
         self.turn_emotions: List[Dict[str, Any]] = []
 
     def add_user_message(self, text: str) -> None:
@@ -92,7 +90,7 @@ class HistoryManager:
     #
     # 외부에서 데이터를 가져가는 방법:
     #   from app.services.pipeline import pipeline
-    #   history_mgr = pipeline.session.get_history_manager(session_id)
+    #   history_mgr = pipeline.session.get_history_manager(ticket_id)
     #   emotions = history_mgr.get_turn_emotions()
     #
     # entry 구조 (List[Dict]):
@@ -100,9 +98,6 @@ class HistoryManager:
     #     "turn": int,            # 1부터 증가하는 턴 번호
     #     "step": int,            # 1~5 CBT 단계
     #     "fused_emotion": str,   # 엔트로피 융합 결과 (최종 감정)
-    #     "text_emotion": str,    # BERT 텍스트 감정
-    #     "voice_emotion": str,   # Wav2Vec2 음성 감정
-    #     "face_emotion": str,    # DeepFace 얼굴 감정
     #   }
     #
     # 호출 시점: pipeline.generate_response() 가 매 턴 종료 시 add_turn_emotion 호출
@@ -112,16 +107,9 @@ class HistoryManager:
     #   - Redis publish: 매 턴마다 entry를 채널에 publish
     #   - HTTP POST: 세션 종료 시 get_turn_emotions() 결과를 Spring 엔드포인트로 전송
     # ════════════════════════════════════════════════════════════════
-    def add_turn_emotion(
-        self,
-        fused: str,
-        text: str,
-        voice: str,
-        face: str,
-        step: int = 0,
-    ) -> Dict[str, Any]:
+    def add_turn_emotion(self, fused: str, step: int = 0) -> Dict[str, Any]:
         """
-        턴 종료 시점에 3모달 감정 결과를 저장한다.
+        턴 종료 시점에 융합 감정 결과를 저장한다.
         turn 번호는 현재까지 쌓인 full_history 기준 자동 산출.
 
         Returns: 저장된 entry (Redis 발행 등 후속 처리용)
@@ -131,15 +119,9 @@ class HistoryManager:
             "turn": turn,
             "step": step,
             "fused_emotion": fused,
-            "text_emotion": text,
-            "voice_emotion": voice,
-            "face_emotion": face,
         }
         self.turn_emotions.append(entry)
-        logger.info(
-            f"[History] Turn {turn} (Step {step}) 감정 저장: "
-            f"fused={fused} / text={text} / voice={voice} / face={face}"
-        )
+        logger.info(f"[History] Turn {turn} (Step {step}) 감정 저장: fused={fused}")
         return entry
 
     def get_turn_emotions(self) -> List[Dict[str, Any]]:

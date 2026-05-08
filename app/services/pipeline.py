@@ -431,9 +431,6 @@ class CounselingPipeline:
         if history_mgr:
             history_mgr.add_turn_emotion(
                 fused=fused_emo.primary_emotion,
-                text=text_emo.primary_emotion,
-                voice=voice_emo.primary_emotion,
-                face=face_emo.primary_emotion,
                 step=step_num,
             )
 
