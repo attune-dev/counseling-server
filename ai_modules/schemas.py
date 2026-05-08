@@ -43,8 +43,10 @@ class LLMContext(BaseModel):
     face_emotions: List[EmotionResult] = []
     voice_emotions: List[EmotionResult] = []
     text_emotion: Optional[str] = None    # STT 텍스트 감정 (primary label)
-    fused_emotion: Optional[str] = None   # 3모달 융합 최종 감정 → LoRA 선택에 사용
+    fused_emotion: Optional[str] = None   # 3모달 융합 최종 감정 → system prompt 톤 주입에 사용
     history: List[Dict[str, str]] = []    # [{"role": "user"|"assistant", "content": "..."}]
+    max_new_tokens: int = 120             # 일반 120, 5단계 250, 마지막Q 200
+    max_sentences: int = 3                # 일반 3, 마지막Q/5단계 5
 
 class LLMResponse(BaseModel):
     reply_text: str

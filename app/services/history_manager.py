@@ -4,6 +4,10 @@ HistoryManager — 대화 히스토리 + GPT-4o-mini 단계 요약 관리.
 스텝별 대화를 GPT-4o-mini로 요약하여 다음 단계 system_prompt에 누적 메모로 주입.
 LLM에 들어갈 컨텍스트:
   system_prompt (이전 단계 요약 포함) + 현재 단계 최근 N턴 raw history.
+
+turn_emotions: 턴별 감정 기록 (Redis → Spring 연동용).
+  구조: [{"turn": int, "step": int, "fused_emotion": str,
+           "text_emotion": str, "voice_emotion": str, "face_emotion": str}, ...]
 """
 
 import logging
@@ -40,6 +44,10 @@ class HistoryManager:
         self.current_step_history: List[Dict[str, str]] = []
         # 전체 원본 히스토리 (리포트용, 절대 잘리지 않음)
         self.full_history: List[Dict[str, str]] = []
+        # 턴별 감정 기록 (Redis → Spring 연동용)
+        # 구조: [{"turn": int, "step": int, "fused_emotion": str,
+        #          "text_emotion": str, "voice_emotion": str, "face_emotion": str}, ...]
+        self.turn_emotions: List[Dict[str, Any]] = []
 
     def add_user_message(self, text: str) -> None:
         self._add_message("user", text)
@@ -78,6 +86,40 @@ class HistoryManager:
 
     def get_full_history(self) -> List[Dict[str, str]]:
         return list(self.full_history)
+
+    def add_turn_emotion(
+        self,
+        fused: str,
+        text: str,
+        voice: str,
+        face: str,
+        step: int = 0,
+    ) -> Dict[str, Any]:
+        """
+        턴 종료 시점에 3모달 감정 결과를 저장한다.
+        turn 번호는 현재까지 쌓인 full_history 기준 자동 산출.
+
+        Returns: 저장된 entry (Redis 발행 등 후속 처리용)
+        """
+        turn = len(self.full_history) // 2  # user+assistant 쌍 기준 턴 번호
+        entry: Dict[str, Any] = {
+            "turn": turn,
+            "step": step,
+            "fused_emotion": fused,
+            "text_emotion": text,
+            "voice_emotion": voice,
+            "face_emotion": face,
+        }
+        self.turn_emotions.append(entry)
+        logger.info(
+            f"[History] Turn {turn} (Step {step}) 감정 저장: "
+            f"fused={fused} / text={text} / voice={voice} / face={face}"
+        )
+        return entry
+
+    def get_turn_emotions(self) -> List[Dict[str, Any]]:
+        """전체 턴별 감정 목록 반환 (리포트/Redis 연동용)."""
+        return list(self.turn_emotions)
 
     def _summarize_step(self, step_name: str) -> str:
         if not self.current_step_history:

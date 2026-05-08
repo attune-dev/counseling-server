@@ -61,7 +61,7 @@ class ConnectionManager:
             # WebSocketDisconnect, ClientDisconnected 등 모두 조용히 처리
             await self.disconnect(ticket_id)
 
-    # VAD 누적 음성 일괄 STT → 음성 감정(백그라운드) + LLM 처리 → 완료 시 클라이언트에 결과 전송
+    # VAD 누적 음성 일괄 STT → 턴 상태별 분기 → LLM 처리 → 클라이언트에 결과 전송
     async def _process_speech_end(self, ticket_id: str):
         stt_result = await pipeline.on_speech_end(ticket_id)
         if not stt_result:
@@ -73,15 +73,50 @@ class ConnectionManager:
             ticket_id
         )
 
-        # LLM 응답 생성 및 전송
-        result = await pipeline.generate_response(ticket_id)
-        if result:
-            llm_response = result["llm_response"]
-            transition = result["transition"]
-            step_status = result["step_status"]           # Qwen이 방금 다룬 질문 기준
-            next_step_status = result["next_step_status"] # 다음에 다룰 질문 기준
+        # 세션 상태에 따라 분기
+        turn_state = pipeline._turn_state.get(ticket_id, "normal")
 
-            # AI 응답 전송 (방금 다룬 질문 기준 step_status 포함)
+        if turn_state == "awaiting_empathy":
+            # ── 정리 턴: 공감 + 키워드 정리 + 전환 질문 ──
+            result = await pipeline.generate_wrap_up_response(ticket_id)
+
+        elif turn_state == "awaiting_transition":
+            # ── 전환 확인 턴: 긍정이면 전환, 아니면 자유 탐색 ──
+            user_text = stt_result.text
+            affirmative = any(kw in user_text for kw in [
+                "네", "좋아요", "넘어가", "다음", "괜찮", "응", "그래",
+                "넘어갈", "진행", "마무리", "오케이",
+            ])
+            if affirmative:
+                result = await pipeline.execute_step_transition(ticket_id)
+            else:
+                result = await pipeline.generate_free_response(ticket_id)
+
+        elif turn_state == "awaiting_completion":
+            # ── 5단계 종료 확인 ──
+            user_text = stt_result.text
+            affirmative = any(kw in user_text for kw in [
+                "네", "좋아요", "마무리", "응", "그래", "괜찮",
+            ])
+            if affirmative:
+                result = await pipeline.execute_counseling_complete(ticket_id)
+            else:
+                result = await pipeline.generate_free_response(ticket_id)
+
+        else:
+            # ── 일반 턴 ──
+            result = await pipeline.generate_response(ticket_id)
+
+        if not result:
+            return
+
+        llm_response = result["llm_response"]
+        transition = result.get("transition")
+        step_status = result.get("step_status")
+        next_step_status = result.get("next_step_status")
+
+        # AI 응답 전송 (빈 응답은 전송 스킵 — execute_step_transition 등)
+        if llm_response.reply_text:
             await self.send_personal_message(
                 {
                     "status": "response",
@@ -91,17 +126,42 @@ class ConnectionManager:
                 ticket_id,
             )
 
-            # 스텝 전환 발생 시 별도 알림 전송
-            if transition in ("step_changed", "counseling_complete"):
-                await self.send_personal_message(
-                    {
-                        "status": "step_changed",
-                        "transition": transition,          # "step_changed" | "counseling_complete"
-                        "step_status": next_step_status,  # 새 스텝 정보
-                    },
-                    ticket_id,
-                )
-                logger.info(f"[Session] {ticket_id}: step_changed 알림 전송 → {transition}")
+        # transition에 따른 추가 메시지
+        if transition == "awaiting_empathy":
+            await self.send_personal_message(
+                {"status": "awaiting_empathy", "step_status": step_status},
+                ticket_id,
+            )
+        elif transition == "awaiting_transition":
+            await self.send_personal_message(
+                {"status": "awaiting_transition", "step_status": step_status},
+                ticket_id,
+            )
+        elif transition == "awaiting_completion":
+            await self.send_personal_message(
+                {"status": "awaiting_completion", "step_status": step_status},
+                ticket_id,
+            )
+        elif transition == "step_changed":
+            await self.send_personal_message(
+                {
+                    "status": "step_changed",
+                    "transition": "step_changed",
+                    "step_status": next_step_status,
+                },
+                ticket_id,
+            )
+            logger.info(f"[Session] {ticket_id}: step_changed 알림 전송")
+        elif transition == "counseling_complete":
+            await self.send_personal_message(
+                {
+                    "status": "step_changed",
+                    "transition": "counseling_complete",
+                    "step_status": next_step_status,
+                },
+                ticket_id,
+            )
+            logger.info(f"[Session] {ticket_id}: 상담 완료 알림 전송")
 
     # [데이터 처리 파이프라인 1]텍스트 프레임 처리
     async def process_text_data(self, ticket_id: str, raw_text: str):
