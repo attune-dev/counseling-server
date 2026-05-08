@@ -49,8 +49,8 @@ async def counseling_endpoint(websocket: WebSocket, ticket_id: str):
         # [초기 생성] 연결 요청 처리 (connect 안에서도 끊길 수 있으므로 try 안에 포함)
         await manager.connect(websocket, ticket_id)
 
-        # [실시간 파이프라인] 무한 루프로 데이터 대기
-        while True:
+        # [실시간 파이프라인] END_OF_SESSION 등으로 세션이 제거되면 루프 종료
+        while ticket_id in manager.active_connections:
             message = await websocket.receive()
 
             if message.get("text") is not None:
@@ -60,8 +60,9 @@ async def counseling_endpoint(websocket: WebSocket, ticket_id: str):
 
     except WebSocketDisconnect:
         await manager.disconnect(ticket_id)
-    except Exception as e:
-        logger.error(f"웹소켓 에러 발생: {e}")
+    except Exception:
+        # exc_info=True 로 traceback 전체 출력 — 디버깅 시 원인 파악 즉시 가능
+        logger.exception(f"[WS] {ticket_id} 처리 중 예외 발생")
         await manager.disconnect(ticket_id)
 
 if __name__ == "__main__":

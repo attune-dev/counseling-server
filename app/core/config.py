@@ -14,14 +14,15 @@ class Settings(BaseSettings):
     whisper_device: str = "cuda"
     whisper_compute_type: str = "float16"
 
-    # CBT LLM 설정 (Qwen2.5-3B + CBT LoRA)
+    # CBT LLM 설정
+    # GPU: "LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct" (기본값)
+    # CPU 테스트: LLM_MODEL=Qwen/Qwen2.5-3B-Instruct CBT_LLM_DEVICE=cpu
+    cbt_llm_model: str = "LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct"
     cbt_llm_device: str = "cuda"
-    cbt_adapter_path: str = "models/cbt-counselor-final"
-    cbt_lora_dir: str = "models/lora"
 
-    # 텍스트 감정 설정 (klue/bert)
+    # 텍스트 감정 설정 (klue/bert) — fp16 GPU 사용 시 ~200MB
     text_emotion_model_path: str = "models/text-emotion-final"
-    text_emotion_device: str = "cpu"
+    text_emotion_device: str = "cuda"
 
     # 음성 감정 설정 (wav2vec2)
     audio_emotion_device: str = "cpu"

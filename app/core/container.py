@@ -3,7 +3,7 @@ from ai_modules.interfaces import (
 )
 from ai_modules.models import (
     TextEmotionModel, Wav2VecEmotionModel,
-    EmotionFusionModel, CBTLLMModel,
+    EmotionFusionModel, ExaoneLLMModel,
 )
 from app.core.config import settings
 import logging
@@ -53,10 +53,9 @@ class AIContainer:
 
         self.fusion = EmotionFusionModel()
 
-        self.llm = CBTLLMModel(
-            cbt_adapter_path=settings.cbt_adapter_path,
-            lora_dir=settings.cbt_lora_dir,
+        self.llm = ExaoneLLMModel(
             device=settings.cbt_llm_device,
+            model_name=settings.cbt_llm_model,
         )
         self.llm.load_model()
 
