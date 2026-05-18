@@ -15,7 +15,6 @@ pydantic>=2.7.0
 pydantic-settings>=2.0.0
 numpy>=1.26.0,<2.0
 
-
 # ==========================================
 # OpenAI API (GPT-4o-mini 플랜 생성용)
 # ==========================================
@@ -36,9 +35,10 @@ sentencepiece>=0.2.0
 # ==========================================
 # [2] 얼굴 감정 인식 (Facial Emotion - DeepFace 등)
 # ==========================================
+tensorflow==2.15.*
+tf-keras>=2.15.0
 deepface>=0.0.93
 opencv-python-headless>=4.10.0
-tf-keras>=2.15.0
 
 # ==========================================
 # [3] 오디오 인식 및 처리 (Audio/Speech - Whisper 등)
@@ -46,4 +46,3 @@ tf-keras>=2.15.0
 faster-whisper>=1.0.0
 soundfile>=0.12.0
 librosa>=0.10.0
-# torchaudio는 위 torch 섹션에서 버전 고정 (torch==2.6.0과 동일)
