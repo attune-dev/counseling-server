@@ -36,7 +36,7 @@ COPY --chown=appuser:appuser . .
 # 사용자 전환
 USER appuser
 
-# 컨테이너가 사용할 포트 명시
+# 컨테이너가 사용할 포트
 EXPOSE 8000
 
 # FastAPI 서버 실행 명령어
