@@ -28,9 +28,8 @@ jobs:
         context: .
         push: true
         tags: ${{ secrets.DOCKER_USERNAME }}/counseling-api:latest
-        # [주의] 이전에 꼬인 캐시를 피하기 위해 임시로 캐시 기능 비활성화
-        # cache-from: type=gha
-        # cache-to: type=gha, mode=max
+        cache-from: type=gha
+        cache-to: type=gha, mode=max
 
     - name: 4. EC2 서버 접속해서 새 컨테이너 띄우기
       uses: appleboy/ssh-action@v1.0.3
