@@ -38,14 +38,14 @@ class HistoryManager:
         self.api_key = api_key or settings.openai_api_key
 
         # 단계별 요약 (단계 전환 시 채워짐)
-        self.step_summaries: Dict[int, Dict[str, Any]] = {}
+        self.step_summaries: Dict[int, Dict[str, Any]] = {}  # TODO: Redis 이동 예정
         # 현재 단계 대화
         self.current_step_history: List[Dict[str, str]] = []
         # 전체 원본 히스토리 (리포트용, 절대 잘리지 않음)
         self.full_history: List[Dict[str, str]] = []
         # 턴별 감정 기록 (Redis → Spring 연동용)
-        # 구조: [{"turn": int, "step": int, "fused_emotion": str}, ...]
-        self.turn_emotions: List[Dict[str, Any]] = []
+        # 구조: [{"turn": int, "step": int, "fused_emotion": str, "recorded_at": str}, ...]
+        self.turn_emotions: List[Dict[str, Any]] = []  # TODO: Redis 이동 예정
 
     def add_user_message(self, text: str) -> None:
         self._add_message("user", text)
@@ -114,11 +114,13 @@ class HistoryManager:
 
         Returns: 저장된 entry (Redis 발행 등 후속 처리용)
         """
+        from datetime import datetime
         turn = len(self.full_history) // 2  # user+assistant 쌍 기준 턴 번호
         entry: Dict[str, Any] = {
             "turn": turn,
             "step": step,
             "fused_emotion": fused,
+            "recorded_at": datetime.now().isoformat(timespec="seconds"),
         }
         self.turn_emotions.append(entry)
         logger.info(f"[History] Turn {turn} (Step {step}) 감정 저장: fused={fused}")

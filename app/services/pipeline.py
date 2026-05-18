@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from ai_modules.schemas import (
     CounselingSetup, EmotionResult, FaceInput, LLMContext, LLMResponse, STTInput, STTOutput
@@ -66,7 +66,7 @@ class CounselingPipeline:
         self.audio = AudioProcessor(container)
         self.session = CounselingSession(container)
         # 세션별 비오디오 버퍼
-        self._counseling_setup: Dict[str, Optional[CounselingSetup]] = {}
+        self._counseling_setup: Dict[str, Optional[CounselingSetup]] = {}  # TODO: Redis 이동 예정
         self._face_emotion_buffer: Dict[str, List[EmotionResult]] = {}
         self._voice_emotion_buffer: Dict[str, List[EmotionResult]] = {}
         self._stt_text_buffer: Dict[str, List[str]] = {}
@@ -74,8 +74,12 @@ class CounselingPipeline:
         self._last_pcm_audio: Dict[str, bytes] = {}
         # 음성 감정 분석 throttle용 세션별 Lock (동시 실행 1개로 제한, 폭주 방지)
         self._voice_emotion_locks: Dict[str, asyncio.Lock] = {}
+        # 얼굴 감정 분석 throttle용 세션별 Lock (DeepFace 동시 실행 1개로 제한)
+        self._face_emotion_locks: Dict[str, asyncio.Lock] = {}
         # 세션별 턴 상태 (공감 턴 분리)
-        self._turn_state: Dict[str, str] = {}
+        self._turn_state: Dict[str, str] = {}  # TODO: Redis 이동 예정 (진행 위치 복원용)
+        # fire-and-forget 백그라운드 task 참조 보관 (GC 방지)
+        self._pending_tasks: Set[asyncio.Task] = set()
 
     # ══════════════════════════════════════════════════════════════
     # 세션 수명 주기
@@ -90,6 +94,7 @@ class CounselingPipeline:
         self._stt_text_buffer[session_id] = []
         self._last_pcm_audio[session_id] = b""
         self._voice_emotion_locks[session_id] = asyncio.Lock()
+        self._face_emotion_locks[session_id] = asyncio.Lock()
         self._turn_state[session_id] = "normal"
         logger.info(f"세션 초기화: {session_id}")
 
@@ -103,6 +108,7 @@ class CounselingPipeline:
             self._stt_text_buffer,
             self._last_pcm_audio,
             self._voice_emotion_locks,
+            self._face_emotion_locks,
             self._turn_state,
         ):
             buf.pop(session_id, None)
@@ -129,17 +135,22 @@ class CounselingPipeline:
     # ══════════════════════════════════════════════════════════════
 
     async def process_face_frame(self, session_id: str, image_bytes: bytes) -> None:
-        try:
-            face_input = FaceInput(video_frame=image_bytes)
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                None, self.container.face_emotion.analyze, face_input
-            )
-            if session_id in self._face_emotion_buffer:
-                self._face_emotion_buffer[session_id].append(result)
-                logger.info(f"[Face] {session_id}: {result.primary_emotion} {result.probabilities}")
-        except Exception as e:
-            logger.error(f"[Face] {session_id}: 분석 오류: {e}")
+        # throttle: 처리 중인 프레임 있으면 새 프레임 드롭 (음성 감정과 동일 패턴)
+        lock = self._face_emotion_locks.get(session_id)
+        if lock is None or lock.locked():
+            return
+        async with lock:
+            try:
+                face_input = FaceInput(video_frame=image_bytes)
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(
+                    None, self.container.face_emotion.analyze, face_input
+                )
+                if session_id in self._face_emotion_buffer:
+                    self._face_emotion_buffer[session_id].append(result)
+                    logger.info(f"[Face] {session_id}: {result.primary_emotion} {result.probabilities}")
+            except Exception as e:
+                logger.error(f"[Face] {session_id}: 분석 오류: {e}")
 
     async def _analyze_voice_emotion(self, session_id: str, voice_pcm: bytes) -> None:
         try:
@@ -722,12 +733,56 @@ class CounselingPipeline:
         self._clear_turn_buffers(session_id)
         logger.info(f"[StepMgr] {session_id}: 전체 상담 완료")
 
+        # ── Spring 리포트 송신 (fire-and-forget) ─────────────────────
+        # task 참조 보관: 이벤트 루프가 task에 약한 참조만 갖기 때문에
+        # 강한 참조 없으면 GC 회수되어 도중에 사라질 수 있음 (Python 공식 권고)
+        self.session.mark_ended(session_id)
+        task = asyncio.create_task(self._send_report_to_spring(session_id))
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
+
         return {
             "llm_response": LLMResponse(reply_text=""),
             "transition": "counseling_complete",
             "step_status": pre_status,
             "next_step_status": step_mgr.get_status(),
         }
+
+    async def _send_report_to_spring(self, session_id: str) -> None:
+        """상담 종료 시 Spring `/internal/counseling/report` 로 리포트 전송."""
+        from app.services.report_builder import build_report
+        from app.services.report_insights import generate_insights
+        from app.services.spring_client import send_report
+
+        history_mgr = self.session.get_history_manager(session_id)
+        if not history_mgr:
+            logger.warning(f"[Spring] {session_id}: HistoryManager 없음, 리포트 송신 스킵")
+            return
+
+        setup = self._counseling_setup.get(session_id)
+        turn_emotions = history_mgr.get_turn_emotions()
+        step_summaries = history_mgr.get_step_summaries()
+
+        # GPT-4o-mini로 summary / strengths / actionItems / keywords 생성
+        insights = await generate_insights(
+            topic=setup.topic if setup else "",
+            mood=setup.mood if setup else "",
+            content=setup.content if setup else "",
+            step_summaries=step_summaries,
+            turn_emotions=turn_emotions,
+        )
+
+        payload = build_report(
+            session_id=session_id,
+            user_id=self.session.get_user_id(session_id),
+            setup=setup,
+            started_at=self.session.get_started_at(session_id),
+            ended_at=self.session.get_ended_at(session_id),
+            turn_emotions=turn_emotions,
+            step_summaries=step_summaries,
+            insights=insights,
+        )
+        await send_report(payload)
 
 
 # 전역 인스턴스 (session_manager에서 import해서 사용)

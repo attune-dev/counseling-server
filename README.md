@@ -20,6 +20,8 @@ AI 기반 실시간 CBT 심리상담 WebSocket 서버입니다.
 | 감정 융합 | 엔트로피 기반 동적 가중치 (Shannon Entropy → 역수 → 정규화) |
 | 상담 플랜 생성 | GPT-4o-mini (OpenAI API) |
 | LLM | EXAONE-3.5-7.8B-Instruct 8-bit 양자화 (HuggingFace 자동 다운로드) |
+| 인증 / 캐시 | Redis (ticket_id → userId 조회) |
+| 외부 백엔드 | Spring (상담 종료 시 HTTP POST 리포트 송신) |
 
 ---
 
@@ -36,12 +38,16 @@ counseling_server/
 │   └── services/
 │       ├── audio_processor.py     # VAD 침묵 감지 + 배치 STT 처리
 │       ├── pipeline.py            # 상담 데이터 흐름 오케스트레이터 (턴 상태 머신)
-│       ├── session_manager.py     # WebSocket 연결 관리 및 데이터 라우팅
+│       ├── session_manager.py     # WebSocket 연결 관리 + Redis 인증 + 데이터 라우팅
 │       ├── counseling_session.py  # 세션 오케스트레이터 (플랜 생성 → 첫 발화 병렬)
 │       ├── plan_generator.py      # GPT-4o-mini 5-Step CBT 플랜 생성
 │       ├── step_manager.py        # 스텝별 질문 진행 및 전환 관리
 │       ├── history_manager.py     # 대화 히스토리 + GPT-4o-mini 단계 요약 + 턴 감정 기록
-│       └── emotion_monitor.py     # 모달리티별 부정 감정 감지 및 하이라이트 저장
+│       ├── emotion_monitor.py     # 모달리티별 부정 감정 감지 및 하이라이트 저장
+│       ├── redis_client.py        # ticket_id → userId 인증 조회 (Redis)
+│       ├── report_builder.py      # Spring DTO 페이로드 빌드 (enum 변환 + emotionFlow 압축)
+│       ├── report_insights.py     # GPT-4o-mini 단일 호출로 리포트 4필드 생성
+│       └── spring_client.py       # Spring 백엔드 HTTP POST (X-Internal-API-Key)
 ├── ai_modules/
 │   ├── interfaces.py              # AI 모델 베이스 클래스
 │   ├── models.py                  # 실제 AI 모델 구현체 (TextEmotionModel, Wav2VecEmotionModel, EmotionFusionModel, ExaoneLLMModel)
@@ -61,7 +67,9 @@ counseling_server/
 
 ```
 [연결]
-  WebSocket 접속 → 세션 초기화 → "connected" 응답
+  WebSocket 접속 → Redis로 ticket_id → userId 조회
+    ├─ 없음: "auth_failed" 응답 후 즉시 close (1008)
+    └─ 있음: 세션 초기화 → "connected" 응답
 
 [초기 상담 설정]
   클라이언트: {"type": "setup", "data": {"topic", "mood", "content"}}
@@ -85,6 +93,13 @@ counseling_server/
     └─ awaiting_completion:
         긍정 키워드 → execute_counseling_complete() — 상담 종료
         그 외       → generate_free_response()
+
+[5단계 상담 종료]
+  사용자 긍정 응답 → execute_counseling_complete:
+    └─ fire-and-forget 백그라운드:
+        ├─ GPT-4o-mini로 리포트 4필드(summary/strengths/actionItems/keywords) 생성
+        ├─ 페이로드 빌드 (enum 변환, emotionFlow 연속 중복 제거)
+        └─ Spring `/internal/counseling/report` 로 HTTP POST (X-Internal-API-Key 헤더)
 
 [세션 종료]
   {"type": "control", "data": "END_OF_SESSION"} → 세션 정리
@@ -188,7 +203,7 @@ cp .env.example .env
 
 | 키 | 기본값 | 설명 |
 |----|--------|------|
-| `OPENAI_API_KEY` | _(필수)_ | GPT-4o-mini 플랜 생성 + 단계 요약용 |
+| `OPENAI_API_KEY` | _(필수)_ | GPT-4o-mini 플랜 생성 + 단계 요약 + 리포트 인사이트용 |
 | `WHISPER_MODEL_SIZE` | `small` | Whisper 모델 크기 |
 | `WHISPER_DEVICE` | `cuda` | STT 디바이스 |
 | `CBT_LLM_DEVICE` | `cuda` | EXAONE LLM 디바이스 |
@@ -196,6 +211,11 @@ cp .env.example .env
 | `AUDIO_EMOTION_DEVICE` | `cpu` | Wav2Vec2 음성 감정 디바이스 |
 | `NEGATIVE_EMOTION_THRESHOLD` | `0.65` | 부정 감정 감지 임계값 |
 | `APP_PORT` | `8000` | 서버 포트 |
+| `REDIS_URL` | `redis://localhost:6379/0` | ticket_id → userId 조회용 |
+| `DEV_SKIP_REDIS_AUTH` | `false` | 테스트 전용. true면 Redis 없이 ticket_id 그대로 userId로 사용 |
+| `SPRING_BACKEND_URL` | `http://localhost:8080` | 상담 종료 리포트 송신 대상 |
+| `SPRING_INTERNAL_API_KEY` | _(필수, 운영)_ | `X-Internal-API-Key` 헤더 값 |
+| `USE_DUMMY_MODELS` | `false` | 테스트 전용. true면 AI 모델 전부 가짜 응답기로 대체 (GPU 불필요) |
 
 ### 5. 서버 실행
 
@@ -283,13 +303,27 @@ ws://localhost:8000/ws/counseling/{ticket_id}
 
 ## 테스트
 
-```bash
-python test_e2e.py
-```
+| 스크립트 | 용도 | 필요 환경 |
+|---|---|---|
+| `python test_report_build.py` | Spring 페이로드 JSON 모양 검증 | 네트워크 X (즉시) |
+| `python test_report_build.py --with-gpt` | + GPT 인사이트 생성 검증 | OpenAI API 키만 |
+| `python test_mock_spring.py` | Mock Spring 서버 (포트 8080) — POST 받으면 콘솔 출력 | uvicorn만 |
+| `python test_pipeline.py [wav]` | WebSocket 클라이언트 시뮬레이터 | AI 서버 가동 필요 |
 
-- starlette TestClient로 in-process 실행 (서버 별도 기동 불필요)
-- `test_audio.raw` (float32 PCM 16kHz mono), `input_video.mp4` 파일 필요
-- 실제 모델 전체 사용 (VAD / STT / 감정 / LLM)
+### GPU 없이 전체 흐름 테스트
+
+`.env`에 다음 두 줄 추가하고 서버 실행:
+```env
+USE_DUMMY_MODELS=true
+DEV_SKIP_REDIS_AUTH=true
+```
+- AI 모델 부팅 즉시 완료 (GPU 불필요)
+- Redis 없어도 `ticket_id` 가 자동으로 user_id로 사용됨
+- `python test_pipeline.py` 로 전체 흐름 검증 가능
+
+### 자세한 검증 시나리오
+
+→ [DEPLOYMENT.md §12 테스트/스테이징 모드](DEPLOYMENT.md) 참고
 
 ---
 

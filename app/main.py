@@ -20,6 +20,9 @@ async def lifespan(app: FastAPI):
     logger.info("AI 모델 로딩을 시작합니다...")
     ai_container.load_models() # 모델들을 메모리에 올려둠
     yield # 서버 실행 시점
+    # Redis 클라이언트 정리 (lazy 생성된 경우만 close)
+    from app.services.redis_client import close as redis_close
+    await redis_close()
     logger.info("서버 종료.")
 
 # 앱 생성

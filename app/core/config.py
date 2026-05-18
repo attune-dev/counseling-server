@@ -34,6 +34,18 @@ class Settings(BaseSettings):
     # OpenAI API (GPT-4o-mini 플랜 생성용)
     openai_api_key: str = ""  # OPENAI_API_KEY 환경변수로 설정
 
+    # Spring 백엔드 (상담 종료 리포트 송신용 내부 API)
+    spring_backend_url: str = "http://localhost:8080"
+    spring_report_endpoint: str = "/internal/counseling/report"
+    spring_request_timeout: float = 10.0
+    spring_internal_api_key: str = ""  # 내부 API 인증 키 (X-Internal-API-Key 헤더)
+
+    # Redis (ticket_id → userId 조회용)
+    redis_url: str = "redis://localhost:6379/0"
+    # 개발/테스트 모드: Redis 미실행 또는 key 미존재 시 ticket_id를 user_id로 사용
+    # 프로덕션은 반드시 false
+    dev_skip_redis_auth: bool = False
+
     # 감정 임계치
     negative_emotion_threshold: float = 0.65
 

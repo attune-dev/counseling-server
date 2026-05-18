@@ -11,7 +11,10 @@ ws://<host>:8000/ws/counseling/{ticket_id}
 ```
 
 - `ticket_id`: 세션 식별자 (URL 경로). 서버는 이를 키로 세션 상태를 관리합니다.
-- 연결 직후 서버가 `connected` 메시지를 1회 전송합니다.
+  서버 측에서 Redis 조회(`ticket_id → userId`)도 이 값으로 합니다.
+- 연결 직후:
+  - 인증 성공 → 서버가 `connected` 메시지 전송
+  - 인증 실패 → 서버가 `auth_failed` 메시지 후 즉시 연결 종료 (close code 1008)
 
 ---
 
@@ -73,6 +76,17 @@ ws://<host>:8000/ws/counseling/{ticket_id}
   "next_action": null
 }
 ```
+
+### 3-1b. `auth_failed` — 인증 실패 (Redis에 ticket_id 미존재)
+
+```json
+{
+  "status": "auth_failed",
+  "message": "가입되지 않은 사용자입니다. 다시 로그인해주세요."
+}
+```
+
+이 메시지 직후 서버가 즉시 WebSocket close (code 1008). 클라이언트는 로그인 페이지로 리다이렉트하는 UX 권장.
 
 ### 3-2. `initial_questions` — 초기 상담 준비 완료
 
