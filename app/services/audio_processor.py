@@ -82,7 +82,7 @@ class AudioProcessor:
     # 증분 STT 워커 - 큐에서 오디오를 꺼내 STT 실행 후 텍스트 누적
     async def _worker(self, session_id: str) -> None:
         queue = self._transcription_queue[session_id]
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             while True:
                 audio_bytes = await queue.get()
@@ -166,7 +166,7 @@ class AudioProcessor:
         self._last_audio_snapshot[session_id] = audio_data
         logger.info(f"[SpeechEnd] {session_id}: VAD 누적 음성 일괄 STT 처리 ({len(audio_data)}B)")
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         self._stt_running[session_id] = True
         try:
             t0 = time.time()

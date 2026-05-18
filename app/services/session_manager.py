@@ -5,8 +5,10 @@ import logging
 from fastapi import WebSocket, WebSocketDisconnect
 from typing import Dict
 
+from app.core.config import settings
 from app.schemas import InputTest, ServerResponse
 from app.services.pipeline import pipeline
+from app.services.redis_client import get_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +29,38 @@ class ConnectionManager:
     # [초기 상담 생성] 웹소캣 연결 수락
     async def connect(self, websocket: WebSocket, ticket_id: str):
         await websocket.accept()
+
+        # Redis에서 ticket_id → userId 인증 조회
+        user_id = await get_user_id(ticket_id)
+        if user_id is None:
+            if settings.dev_skip_redis_auth:
+                # 폴백: ticket_id 를 int 변환 시도, 실패 시 hash
+                try:
+                    user_id = int(ticket_id)
+                except (ValueError, TypeError):
+                    user_id = abs(hash(ticket_id)) % 1_000_000
+                logger.warning(
+                    f"[Session] {ticket_id} Redis 우회 (DEV_SKIP_REDIS_AUTH) → userId={user_id}"
+                )
+            else:
+                await websocket.send_text(json.dumps({
+                    "status": "auth_failed",
+                    "message": "가입되지 않은 사용자입니다. 다시 로그인해주세요.",
+                }, ensure_ascii=False))
+                await websocket.close(code=1008)
+                logger.warning(f"[Session] {ticket_id} 인증 실패 — userId 미존재")
+                return
+
         self.active_connections[ticket_id] = websocket
         pipeline.init_session(ticket_id)
+        pipeline.session.set_user_id(ticket_id, user_id)
         await pipeline.start_transcription_worker(ticket_id)  # 증분 STT 워커 (현재 미사용, 향후 전환 대비)
         self._audio_counts[ticket_id] = 0
         self._video_counts[ticket_id] = 0
-        # 연결 성공 로깅으로 바꿈
-        logger.info(f"--- [Session] {ticket_id} 연결 (현재 접속자: {len(self.active_connections)}명)")
+        logger.info(
+            f"--- [Session] {ticket_id} 연결 (userId={user_id}, "
+            f"현재 접속자: {len(self.active_connections)}명)"
+        )
 
         # 연결 성공 메시지 전송
         await self.send_personal_message(

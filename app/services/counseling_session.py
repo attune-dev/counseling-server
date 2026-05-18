@@ -6,6 +6,7 @@ setup 데이터 → 플랜 생성(병렬) + 첫 발화 생성 → StepManager + 
 import asyncio
 import logging
 import time
+from datetime import datetime
 from typing import Dict, Optional, List, Any
 
 from ai_modules.schemas import CounselingSetup, LLMContext, LLMResponse
@@ -34,9 +35,14 @@ class CounselingSession:
         self.plan_generator = DynamicPlanGenerator()
         self.emotion_monitor = EmotionMonitor()
         # 세션별 상태
-        self._setups: Dict[str, CounselingSetup] = {}
-        self._step_managers: Dict[str, StepManager] = {}
+        self._setups: Dict[str, CounselingSetup] = {}  # TODO: Redis 이동 예정
+        self._step_managers: Dict[str, StepManager] = {}  # TODO: plan + analysis Redis 이동 예정
         self._history_managers: Dict[str, HistoryManager] = {}
+        # Spring 리포트 송신용 세션 시각 추적
+        self._started_at: Dict[str, datetime] = {}
+        self._ended_at: Dict[str, datetime] = {}
+        # 인증된 userId (Redis 조회 결과)
+        self._user_ids: Dict[str, int] = {}
 
     def init_session(self, session_id: str) -> None:
         self._history_managers[session_id] = HistoryManager(max_recent_turns=4)
@@ -46,7 +52,25 @@ class CounselingSession:
         self._setups.pop(session_id, None)
         self._step_managers.pop(session_id, None)
         self._history_managers.pop(session_id, None)
+        self._started_at.pop(session_id, None)
+        self._ended_at.pop(session_id, None)
+        self._user_ids.pop(session_id, None)
         self.emotion_monitor.cleanup_session(session_id)
+
+    def get_started_at(self, session_id: str) -> Optional[datetime]:
+        return self._started_at.get(session_id)
+
+    def get_ended_at(self, session_id: str) -> Optional[datetime]:
+        return self._ended_at.get(session_id)
+
+    def mark_ended(self, session_id: str) -> None:
+        self._ended_at[session_id] = datetime.now()
+
+    def set_user_id(self, session_id: str, user_id: int) -> None:
+        self._user_ids[session_id] = user_id
+
+    def get_user_id(self, session_id: str) -> Optional[int]:
+        return self._user_ids.get(session_id)
 
     def get_step_manager(self, session_id: str) -> Optional[StepManager]:
         return self._step_managers.get(session_id)
@@ -69,8 +93,9 @@ class CounselingSession:
         """
         setup = CounselingSetup(topic=topic, mood=mood, content=content)
         self._setups[session_id] = setup
+        self._started_at[session_id] = datetime.now()
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         t0 = time.time()
 
         # GPT 플랜 생성 + Qwen 첫 발화 병렬 실행
@@ -149,7 +174,7 @@ class CounselingSession:
             system_prompt=INTRO_PROMPT,
             history=[],
         )
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         t0 = time.time()
         response = await loop.run_in_executor(
             None, self.container.llm.generate_response, llm_context

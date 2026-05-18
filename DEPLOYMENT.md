@@ -98,14 +98,18 @@ torch>=2.6.0
 
 | 키 | 값 | 비고 |
 |----|----|------|
-| `OPENAI_API_KEY` | `sk-proj-...` | **필수**. GPT-4o-mini 호출용. 코드 푸시 시 절대 포함 X |
+| `OPENAI_API_KEY` | `sk-proj-...` | **필수**. GPT-4o-mini(플랜/요약/리포트 인사이트) 호출용. 절대 푸시 X |
 | `CBT_LLM_MODEL` | `LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct` | HuggingFace에서 자동 다운로드 |
 | `CBT_LLM_DEVICE` | `cuda` | |
 | `WHISPER_DEVICE` | `cuda` | |
 | `TEXT_EMOTION_DEVICE` | `cuda` | |
 | `AUDIO_EMOTION_DEVICE` | `cpu` | Wav2Vec2는 CPU 권장 (병목 아님) |
+| `REDIS_URL` | `redis://<host>:6379/0` | **필수**. `ticket_id → userId` 인증 조회용 |
+| `DEV_SKIP_REDIS_AUTH` | `false` | 프로덕션은 반드시 `false`. `true`면 Redis 없이 ticket_id를 그대로 userId로 사용 (테스트 전용) |
+| `SPRING_BACKEND_URL` | `http://<spring-host>:8080` | 같은 EC2/VPC 내부 주소 |
+| `SPRING_INTERNAL_API_KEY` | _(발급받은 키)_ | `X-Internal-API-Key` 헤더로 송신 |
 
-**AWS Secrets Manager / SSM Parameter Store** 등으로 `OPENAI_API_KEY`를 주입하는 게 안전합니다.
+**AWS Secrets Manager / SSM Parameter Store** 등으로 `OPENAI_API_KEY`, `SPRING_INTERNAL_API_KEY` 같은 비밀값을 주입하는 게 안전합니다.
 
 ---
 
@@ -133,9 +137,11 @@ models/
 
 ## 7. 포트 / 네트워크
 
-- 서버: `8000/tcp`
+- 서버: `8000/tcp` (외부 노출)
+- **Redis 6379** — AI 서버 → Redis 방향 통신 필요 (같은 VPC 내부)
+- **Spring 8080** — AI 서버 → Spring 방향 통신 필요 (같은 VPC 내부, 상담 종료 리포트 송신)
 - WebSocket이라 ALB 사용 시 **WebSocket 지원 활성화** 필요 (`stickiness`, `idle_timeout` ≥ 600s)
-- 보안그룹: 클라이언트(프론트) 도메인 허용
+- 보안그룹: 클라이언트(프론트) 도메인 외부 허용, Redis/Spring은 VPC 내부만
 
 ---
 
@@ -156,12 +162,20 @@ ALB/Target Group 헬스체크 경로로 사용 가능. 단, 초기 모델 로딩
 [ ] GPU 인식: nvidia-smi 컨테이너 내부에서 동작 확인
 [ ] CUDA 12.4 호환: torch.cuda.is_available() == True
 [ ] models/ 폴더 마운트 완료
-[ ] .env 의 OPENAI_API_KEY 주입 확인
-[ ] 8000 포트 외부 노출
+[ ] .env 의 OPENAI_API_KEY, REDIS_URL, SPRING_BACKEND_URL, SPRING_INTERNAL_API_KEY 주입 확인
+[ ] Redis 인스턴스 reachable: redis-cli -u $REDIS_URL ping → PONG
+[ ] Spring 백엔드 reachable: curl $SPRING_BACKEND_URL/  (또는 헬스체크 URL)
+[ ] 8000 포트 외부 노출, 6379/8080은 VPC 내부만
 [ ] 첫 EXAONE 다운로드(~16GB) 완료 후 VRAM 7~8GB 점유 확인
 [ ] 헬스체크 GET / → 200 OK
-[ ] WebSocket 연결 테스트: wscat -c ws://<host>:8000/ws/counseling/test-001
+[ ] WebSocket 연결 테스트: Redis에 ticket_id 등록 후 wscat -c ws://<host>:8000/ws/counseling/<ticket_id>
 ```
+
+### Redis Key 포맷
+
+현재 코드는 `ticket_id` 를 **prefix 없이 raw 그대로** Redis 키로 사용 (`app/services/redis_client.py::_user_id_key()`). 값은 userId 문자열.
+
+스프링 측이 prefix(예: `ticket:{ticket_id}`)를 쓰면 해당 함수 한 줄만 수정.
 
 ---
 
@@ -175,4 +189,50 @@ ALB/Target Group 헬스체크 경로로 사용 가능. 단, 초기 모델 로딩
 - `[EXAONE] 로딩 완료` — 부팅 완료
 - `[VAD] ... 발화 종료` — 사용자 발화 감지
 - `[LLM] ... XX초` — 응답 생성 시간 (정상 ~5~15초)
+- `[Session] {ticket_id} 연결 (userId=..., ...)` — 인증 성공
+- `[Session] {ticket_id} 인증 실패` — Redis 키 없음, 정상 차단 동작
+- `[Spring] 리포트 전송 성공/실패` — 상담 종료 시 송신 결과
 - `ERROR` 레벨 메시지 — 서비스 이상 신호
+
+---
+
+## 11. Spring 연동 / Redis 의존성
+
+### 외부 연동 도식
+```
+                                  ┌──────────────┐
+[Browser] ──ws──▶ [AI 서버:8000] ──▶│ Redis :6379  │  (인증 조회)
+                       │           └──────────────┘
+                       │
+                       │  상담 종료 시 HTTP POST
+                       ▼
+              ┌──────────────────┐
+              │ Spring :8080     │  /internal/counseling/report
+              │  (같은 VPC 내부)  │  X-Internal-API-Key 헤더 검증
+              └──────────────────┘
+```
+
+### 연동 흐름
+1. **WebSocket 접속 시점:** AI 서버가 `ticket_id` 키로 Redis 조회 → userId 없으면 `auth_failed` 응답 + 즉시 연결 종료
+2. **상담 종료 시점:** GPT-4o-mini로 인사이트(요약/강점/실행항목/키워드) 생성 → Spring `/internal/counseling/report` 로 fire-and-forget POST. 실패해도 본 서비스 무영향 (로그만)
+
+### Spring 측 준비 사항
+- `/internal/counseling/report` 엔드포인트 — 외부 노출 X, VPC 내부만
+- `X-Internal-API-Key` 헤더 검증 로직
+- `ReportSaveRequest` DTO (`stageDetails[].emotionFlow`는 연속 중복 제거된 형태, `emotionLogs`는 매 턴 그대로)
+
+---
+
+## 12. 테스트/스테이징 모드 (GPU 없이 코드 흐름만 확인)
+
+GPU 없는 환경에서 코드/네트워크 흐름만 검증하고 싶을 때 사용. **프로덕션에서는 절대 활성화 금지**.
+
+| 토글 | 효과 |
+|---|---|
+| `DEV_SKIP_REDIS_AUTH=true` | Redis 없어도 ticket_id를 user_id로 사용 |
+| `USE_DUMMY_MODELS=true` | 모든 AI 모델을 가짜 응답기로 대체 (서버 부팅 즉시, GPU 불필요) |
+
+서브 단위 검증 스크립트:
+- `python test_report_build.py` — Spring 페이로드 모양 검증 (네트워크 X)
+- `python test_mock_spring.py` — Mock Spring 띄워두기 (포트 8080)
+- `python test_pipeline.py` — 클라이언트 시뮬레이터 (서버에 WebSocket 접속)
