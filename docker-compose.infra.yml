@@ -1,0 +1,50 @@
+# attune-net 내부 인프라 (MySQL + Redis)
+# 사전 조건:
+#   docker network create attune-net
+#   sudo mkdir -p /attune/mysql /attune/redis
+#   .env 파일에 DB_USERNAME / DB_PASSWORD / REDIS_PASSWORD 설정
+# 실행:
+#   docker compose -f docker-compose.infra.yml --env-file .env up -d
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: attune-mysql
+    environment:
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: attune_db
+      TZ: Asia/Seoul
+    volumes:
+      - /attune/mysql:/var/lib/mysql
+    networks:
+      - attune-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: always
+
+  redis:
+    image: redis:alpine
+    container_name: attune-redis
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - /attune/redis:/data
+    networks:
+      - attune-net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a \"$$REDIS_PASSWORD\" ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: always
+
+networks:
+  attune-net:
+    external: true

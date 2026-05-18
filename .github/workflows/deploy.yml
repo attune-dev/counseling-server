@@ -29,7 +29,7 @@ jobs:
       with:
         context: .
         push: true
-        tags: ${{ secrets.DOCKER_USERNAME }}/attune-api:latest
+        tags: ${{ secrets.DOCKER_USERNAME }}/counseling-api:latest
         cache-from: type=gha
         cache-to: type=gha, mode=max
 
@@ -41,11 +41,13 @@ jobs:
         key: ${{ secrets.EC2_SSH_KEY }}
         command_timeout: 30m
         script: |
-          sudo docker pull ${{ secrets.DOCKER_USERNAME }}/attune-api:latest
-          sudo docker stop attune-server || true
-          sudo docker rm attune-server || true
+          sudo docker pull ${{ secrets.DOCKER_USERNAME }}/counseling-api:latest
+          sudo docker stop counseling-server || true
+          sudo docker rm counseling-server || true
           sudo docker run -d -p 8000:8000 \
             --gpus all \
-            -v /home/ubuntu/models:/app/models \
-            --name attune-server \
-            ${{ secrets.DOCKER_USERNAME }}/attune-api:latest 
+            --network attune-net \
+            --env-file /attune/fastapi/.env \
+            -v /attune/models:/app/models \
+            --name counseling-server \
+            ${{ secrets.DOCKER_USERNAME }}/counseling-api:latest
