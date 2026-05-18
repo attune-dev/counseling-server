@@ -23,7 +23,7 @@ COPY requirements.txt .
 # 2. 설치 직후 torchvision이 혹시라도 깔렸다면 강제로 뜯어냄
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
-    pip uninstall -y torchvision
+    rm -rf /usr/local/lib/python3.11/site-packages/torchvision*
 
 # Non-root 사용자 생성 및 소스 복사
 RUN useradd -m appuser
