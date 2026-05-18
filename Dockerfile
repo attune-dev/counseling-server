@@ -1,7 +1,6 @@
 FROM --platform=linux/amd64 python:3.11-slim
 
 # 환경변수 설정
-# 로그 즉시 출력, 불필요한 .pyc 생성 제한
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 
 
@@ -17,15 +16,17 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# 의존성 파일 복사 및 설치
+# 1. PyTorch 3형제만 먼저 격리해서 강제 설치 (CUDA 12.4 전용)
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124 \
+    --index-url https://download.pytorch.org/whl/cu124
+
+# 2. 나머지 의존성 파일 복사 및 설치
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Non-root 사용자 생성
+# Non-root 사용자 생성 및 소스 복사
 RUN useradd -m appuser
-
-# 소스 코드 복사
 COPY --chown=appuser:appuser . .
 
 # 사용자 전환
