@@ -19,9 +19,11 @@ RUN apt-get update && \
 # 의존성 파일 복사
 COPY requirements.txt .
 
-# [핵심] 단일 실행으로 묶어서 pip 의존성 덮어쓰기 원천 차단
+# 1. 요구사항 전체 설치
+# 2. 설치 직후 torchvision이 혹시라도 깔렸다면 강제로 뜯어냄
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall -y torchvision
 
 # Non-root 사용자 생성 및 소스 복사
 RUN useradd -m appuser
