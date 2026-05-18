@@ -24,10 +24,7 @@ RUN apt-get update && \
 # 의존성 파일 복사 및 설치
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir --force-reinstall --no-deps \
-       torch==2.6.0+cu124 torchaudio==2.6.0+cu124 torchvision==0.21.0+cu124 \
-       --index-url https://download.pytorch.org/whl/cu124
+    && pip install --no-cache-dir -r requirements.txt
 
 # Non-root 사용자 생성
 RUN useradd -m appuser
