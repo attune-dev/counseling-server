@@ -24,7 +24,7 @@ RUN apt-get update && \
 # 의존성 파일 복사 및 설치
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121 \
+    && pip install --no-cache-dir torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu124 \
     && pip install --no-cache-dir -r requirements.txt
 
 # Non-root 사용자 생성
