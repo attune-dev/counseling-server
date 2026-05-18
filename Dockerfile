@@ -16,14 +16,12 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# 1. PyTorch 3형제만 먼저 격리해서 강제 설치 (CUDA 12.4 전용)
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124 \
-    --index-url https://download.pytorch.org/whl/cu124
-
-# 2. 나머지 의존성 파일 복사 및 설치
+# 의존성 파일 복사
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# [핵심] 단일 실행으로 묶어서 pip 의존성 덮어쓰기 원천 차단
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Non-root 사용자 생성 및 소스 복사
 RUN useradd -m appuser
