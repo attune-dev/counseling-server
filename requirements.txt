@@ -1,4 +1,3 @@
-# PyTorch - CUDA 12.4 전용 저장소 명시 
 --extra-index-url https://download.pytorch.org/whl/cu124
 
 # ==========================================
@@ -24,8 +23,8 @@ openai>=1.0.0
 # [1] LLM (EXAONE-3.5-7.8B-Instruct 8-bit 등)
 # ==========================================
 torch==2.6.0+cu124
-torchvision==0.21.0+cu124
 torchaudio==2.6.0+cu124
+# torchvision 삭제됨 (원흉 제거)
 transformers>=4.52.0
 accelerate>=1.1.1
 bitsandbytes>=0.46.1
