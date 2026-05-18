@@ -1,6 +1,5 @@
 FROM --platform=linux/amd64 python:3.11-slim
 
-
 # 환경변수 설정
 # 로그 즉시 출력, 불필요한 .pyc 생성 제한
 ENV PYTHONUNBUFFERED=1 \
@@ -10,7 +9,6 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # 시스템 패키지 설치
-
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
