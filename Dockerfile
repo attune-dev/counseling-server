@@ -1,12 +1,16 @@
 FROM --platform=linux/amd64 python:3.11-slim
 
+
 # 환경변수 설정
+# 로그 즉시 출력, 불필요한 .pyc 생성 제한
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 
 
+# 작업 디렉토리 설정
 WORKDIR /app
 
 # 시스템 패키지 설치
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
@@ -17,20 +21,25 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# 의존성 파일 복사 및 설치
 COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --force-reinstall --no-deps \
+       torch==2.6.0+cu124 torchaudio==2.6.0+cu124 torchvision==0.21.0+cu124 \
+       --index-url https://download.pytorch.org/whl/cu124
 
-RUN pip install --no-cache-dir --upgrade pip
-
-# 파이토치 삼형제만 오직 파이토치 공식 서버에서 단독으로 먼저 설치
-RUN pip install --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
-
-# 그 다음 나머지 패키지 설치
-RUN pip install --no-cache-dir -r requirements.txt
-
+# Non-root 사용자 생성
 RUN useradd -m appuser
+
+# 소스 코드 복사
 COPY --chown=appuser:appuser . .
+
+# 사용자 전환
 USER appuser
 
+# 컨테이너가 사용할 포트 명시
 EXPOSE 8000
 
+# FastAPI 서버 실행 명령어
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

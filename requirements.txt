@@ -1,3 +1,6 @@
+# PyTorch - CUDA 12.4 기준
+--extra-index-url https://download.pytorch.org/whl/cu124
+
 # ==========================================
 # Web Server & Data Utils
 # ==========================================
@@ -12,6 +15,7 @@ pydantic>=2.7.0
 pydantic-settings>=2.0.0
 numpy>=1.26.0,<2.0
 
+
 # ==========================================
 # OpenAI API (GPT-4o-mini 플랜 생성용)
 # ==========================================
@@ -20,16 +24,18 @@ openai>=1.0.0
 # ==========================================
 # [1] LLM (EXAONE-3.5-7.8B-Instruct 8-bit)
 # ==========================================
+torch==2.6.0+cu124
+torchaudio==2.6.0+cu124
+torchvision==0.21.0+cu124
 transformers>=4.52.0
 accelerate>=1.1.1
 bitsandbytes>=0.46.1
-protobuf==4.25.3
+protobuf>=3.20.3
 sentencepiece>=0.2.0
 
 # ==========================================
 # [2] 얼굴 감정 인식 (Facial Emotion - DeepFace 등)
 # ==========================================
-tensorflow==2.15.0
 deepface>=0.0.93
 opencv-python-headless>=4.10.0
 tf-keras>=2.15.0
@@ -40,3 +46,4 @@ tf-keras>=2.15.0
 faster-whisper>=1.0.0
 soundfile>=0.12.0
 librosa>=0.10.0
+# torchaudio는 위 torch 섹션에서 버전 고정 (torch==2.6.0과 동일)
