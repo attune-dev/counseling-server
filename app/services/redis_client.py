@@ -1,8 +1,8 @@
 """
 Redis 클라이언트 — ticket_id → userId 조회용.
 
-키 포맷 가정: `{ticket_id}` (raw, prefix 없음), 값은 userId 문자열.
-스프링 측이 다른 prefix(예: `ticket:{...}`)를 쓰면 _user_id_key() 만 수정.
+키 포맷: `ticket:{ticket_id}`, 값은 userId 문자열.
+스프링 CounselingService.startSession()에서 동일 포맷으로 저장 (TTL 3분).
 """
 
 import logging
