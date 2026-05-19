@@ -737,7 +737,16 @@ class CounselingPipeline:
         # task 참조 보관: 이벤트 루프가 task에 약한 참조만 갖기 때문에
         # 강한 참조 없으면 GC 회수되어 도중에 사라질 수 있음 (Python 공식 권고)
         self.session.mark_ended(session_id)
-        task = asyncio.create_task(self._send_report_to_spring(session_id))
+
+        # cleanup_session()이 먼저 호출될 수 있으므로 세션 데이터를 미리 캡처
+        report_snapshot = {
+            "user_id": self.session.get_user_id(session_id),
+            "setup": self._counseling_setup.get(session_id),
+            "started_at": self.session.get_started_at(session_id),
+            "ended_at": self.session.get_ended_at(session_id),
+            "history_mgr": self.session.get_history_manager(session_id),
+        }
+        task = asyncio.create_task(self._send_report_to_spring(session_id, report_snapshot))
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
 
@@ -748,18 +757,18 @@ class CounselingPipeline:
             "next_step_status": step_mgr.get_status(),
         }
 
-    async def _send_report_to_spring(self, session_id: str) -> None:
+    async def _send_report_to_spring(self, session_id: str, snapshot: dict) -> None:
         """상담 종료 시 Spring `/internal/counseling/report` 로 리포트 전송."""
         from app.services.report_builder import build_report
         from app.services.report_insights import generate_insights
         from app.services.spring_client import send_report
 
-        history_mgr = self.session.get_history_manager(session_id)
+        history_mgr = snapshot["history_mgr"]
         if not history_mgr:
             logger.warning(f"[Spring] {session_id}: HistoryManager 없음, 리포트 송신 스킵")
             return
 
-        setup = self._counseling_setup.get(session_id)
+        setup = snapshot["setup"]
         turn_emotions = history_mgr.get_turn_emotions()
         step_summaries = history_mgr.get_step_summaries()
 
@@ -774,10 +783,10 @@ class CounselingPipeline:
 
         payload = build_report(
             session_id=session_id,
-            user_id=self.session.get_user_id(session_id),
+            user_id=snapshot["user_id"],
             setup=setup,
-            started_at=self.session.get_started_at(session_id),
-            ended_at=self.session.get_ended_at(session_id),
+            started_at=snapshot["started_at"],
+            ended_at=snapshot["ended_at"],
             turn_emotions=turn_emotions,
             step_summaries=step_summaries,
             insights=insights,
