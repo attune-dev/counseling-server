@@ -28,7 +28,7 @@ def _get_client() -> redis_asyncio.Redis:
 
 
 def _user_id_key(ticket_id: str) -> str:
-    return ticket_id
+    return f"ticket:{ticket_id}"
 
 
 async def get_user_id(ticket_id: str) -> Optional[int]:
