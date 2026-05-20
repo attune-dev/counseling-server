@@ -42,7 +42,7 @@ jobs:
           sudo docker pull ${{ secrets.DOCKER_USERNAME }}/counseling-api:latest
           sudo docker stop counseling-server || true
           sudo docker rm counseling-server || true
-          sudo docker run -d -p 8000:8000 \
+          sudo docker run -d -p \
             --gpus all \
             --restart unless-stopped \
             --network attune-net \
